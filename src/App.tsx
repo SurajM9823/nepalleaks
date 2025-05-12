@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
-import AdminPanel from './components/AdminPanel'; // Import AdminPanel
+import AdminPanel from './components/AdminPanel';
 import BreakingNews from './components/BreakingNews';
 import FeaturedArticles from './components/FeaturedArticles';
 import LatestNews from './components/LatestNews';
@@ -11,6 +11,7 @@ import ArticleDetail from './components/ArticleDetail';
 import SearchResults from './components/SearchResults';
 import AuthModal from './components/AuthModal';
 import BookmarksList from './components/BookmarksList';
+import CategoryPage from './components/CategorySection'; // New component
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { articles as initialArticles, featuredArticles, latestArticles } from './data/articles';
@@ -25,8 +26,9 @@ const AppContent: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isBookmarksOpen, setIsBookmarksOpen] = useState(false);
-  const [isAdminPanel, setIsAdminPanel] = useState(false); // State for AdminPanel
-  const [articles, setArticles] = useState<Article[]>(initialArticles); // Dynamic articles state
+  const [isAdminPanel, setIsAdminPanel] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [articles, setArticles] = useState<Article[]>(initialArticles);
   const { isAuthenticated, user } = useAuth();
 
   const breakingNews = latestArticles.slice(0, 5);
@@ -35,35 +37,78 @@ const AppContent: React.FC = () => {
     return articles.filter((article) => article.category === category).slice(0, 3);
   };
 
-  // Handle saving an article (for AdminPanel)
   const handleSave = (article: Article) => {
+    const slug = article.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
     setArticles((prev) =>
       prev.some((a) => a.id === article.id)
-        ? prev.map((a) => (a.id === article.id ? article : a))
-        : [...prev, article]
+        ? prev.map((a) => (a.id === article.id ? { ...article, slug } : a))
+        : [...prev, { ...article, slug }]
     );
   };
 
-  // Handle deleting an article (for AdminPanel)
   const handleDelete = (id: string) => {
     setArticles((prev) => prev.filter((a) => a.id !== id));
   };
 
-  useEffect(() => {
-    // Update document title and handle admin panel
-    if (window.location.pathname === '/admin') {
-      setIsAdminPanel(true);
-      setSelectedArticle(null);
-      document.title = 'Admin Panel | NepalLeaks';
-    } else if (selectedArticle) {
-      setIsAdminPanel(false);
-      document.title = `${selectedArticle.title} | NepalLeaks`;
-    } else {
-      setIsAdminPanel(false);
-      document.title = 'NepalLeaks | Independent Journalism';
+  const handleRouting = () => {
+    let path = window.location.pathname;
+    // Handle redirects from 404.html
+    const redirectPath = sessionStorage.getItem('redirectPath');
+    if (redirectPath) {
+      path = redirectPath;
+      sessionStorage.removeItem('redirectPath');
     }
 
-    // Update related articles when an article is selected
+    // Remove base path for internal routing
+    const cleanPath = path.replace('/nepalleaks', '');
+    if (cleanPath === '/admin') {
+      setIsAdminPanel(true);
+      setSelectedArticle(null);
+      setSelectedCategory(null);
+      document.title = 'Admin Panel | NepalLeaks';
+    } else if (cleanPath.startsWith('/category/')) {
+      setIsAdminPanel(false);
+      setSelectedArticle(null);
+      const categorySlug = cleanPath.split('/').pop();
+      setSelectedCategory(categorySlug || null);
+      document.title = `${categorySlug
+        ?.split('-')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')} | NepalLeaks`;
+    } else if (cleanPath.startsWith('/article/')) {
+      setIsAdminPanel(false);
+      setSelectedCategory(null);
+      const slug = cleanPath.split('/').pop();
+      if (slug && slug !== '') {
+        const article = articles.find((a) => a.slug === slug);
+        if (article) {
+          setSelectedArticle(article);
+          document.title = `${article.title} | NepalLeaks`;
+        } else {
+          setSelectedArticle(null);
+          document.title = 'Not Found | NepalLeaks';
+        }
+      } else {
+        setSelectedArticle(null);
+      }
+    } else {
+      setIsAdminPanel(false);
+      setSelectedArticle(null);
+      setSelectedCategory(null);
+      document.title = 'NepalLeaks | Independent Journalism';
+    }
+  };
+
+  useEffect(() => {
+    handleRouting();
+    window.addEventListener('popstate', handleRouting);
+    return () => window.removeEventListener('popstate', handleRouting);
+  }, [articles]);
+
+  useEffect(() => {
     if (selectedArticle) {
       const related = articles
         .filter(
@@ -79,57 +124,22 @@ const AppContent: React.FC = () => {
     }
   }, [selectedArticle, articles]);
 
-  // Handle article selection and admin panel from URL
-  useEffect(() => {
-    const handlePopState = () => {
-      const path = window.location.pathname;
-      if (path === '/admin') {
-        setIsAdminPanel(true);
-        setSelectedArticle(null);
-      } else {
-        setIsAdminPanel(false);
-        const slug = path.split('/').pop();
-        if (slug && slug !== '' && path.startsWith('/article/')) {
-          const article = articles.find((a) => a.slug === slug);
-          if (article) {
-            setSelectedArticle(article);
-          } else {
-            setSelectedArticle(null);
-          }
-        } else {
-          setSelectedArticle(null);
-        }
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    handlePopState(); // Initialize
-
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [articles]);
-
-  // Simulate URL change when selecting an article
   useEffect(() => {
     const captureLinks = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const link = target.closest('a');
-
       if (link) {
         const href = link.getAttribute('href');
-        if (href?.startsWith('/article/')) {
+        if (
+          href &&
+          (href.startsWith('/article/') ||
+            href.startsWith('/category/') ||
+            href === '/admin' ||
+            href === '/')
+        ) {
           e.preventDefault();
-          const slug = href.split('/').pop();
-          const article = articles.find((a) => a.slug === slug);
-          if (article) {
-            setSelectedArticle(article);
-            setIsAdminPanel(false);
-            window.history.pushState({}, '', href);
-          }
-        } else if (href === '/admin') {
-          e.preventDefault();
-          setIsAdminPanel(true);
-          setSelectedArticle(null);
-          window.history.pushState({}, '', '/admin');
+          window.history.pushState({}, '', `/nepalleaks${href}`);
+          handleRouting();
         }
       }
     };
@@ -143,7 +153,6 @@ const AppContent: React.FC = () => {
     setSearchLoading(true);
     setIsSearchOpen(true);
 
-    // Simulate search delay
     setTimeout(() => {
       const results = articles.filter(
         (article) =>
@@ -162,7 +171,8 @@ const AppContent: React.FC = () => {
   const handleBackFromArticle = () => {
     setSelectedArticle(null);
     setIsAdminPanel(false);
-    window.history.pushState({}, '', '/');
+    setSelectedCategory(null);
+    window.history.pushState({}, '', '/nepalleaks/');
     document.title = 'NepalLeaks | Independent Journalism';
   };
 
@@ -171,18 +181,27 @@ const AppContent: React.FC = () => {
     setSearchQuery('');
   };
 
-  // Get bookmarked articles for user
   const bookmarkedArticles = React.useMemo(() => {
     if (!isAuthenticated || !user) return [];
     return articles.filter((article) => user.bookmarks.includes(article.id));
   }, [isAuthenticated, user, articles]);
 
-  // Render AdminPanel if /admin
   if (isAdminPanel) {
     return <AdminPanel articles={articles} onSave={handleSave} onDelete={handleDelete} />;
   }
 
-  // If an article is selected, show article detail page
+  if (selectedCategory) {
+    return (
+      <>
+        <CategoryPage
+          categorySlug={selectedCategory}
+          onSelectArticle={(article) => setSelectedArticle(article)}
+        />
+        <Footer />
+      </>
+    );
+  }
+
   if (selectedArticle) {
     return (
       <>
@@ -196,7 +215,6 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Default home page
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900 transition-colors duration-300">
       <Navbar
@@ -208,11 +226,8 @@ const AppContent: React.FC = () => {
       <main className="flex-grow">
         <div className="container mx-auto px-4 py-6">
           <div className="grid lg:grid-cols-12 gap-8">
-            {/* Main Content Area - 8 columns */}
             <div className="lg:col-span-8">
-              {/* Featured Stories */}
               <FeaturedArticles articles={featuredArticles} />
-              {/* Category Sections */}
               <div className="space-y-12">
                 <CategorySection title="Politics" articles={getArticlesByCategory('Politics')} />
                 <CategorySection title="Economy" articles={getArticlesByCategory('Economy')} />
@@ -220,19 +235,15 @@ const AppContent: React.FC = () => {
                 <CategorySection title="World" articles={getArticlesByCategory('World')} />
               </div>
             </div>
-            {/* Sidebar - 4 columns */}
             <div className="lg:col-span-4">
-              {/* Latest News Sidebar */}
               <div className="sticky top-24">
                 <LatestNews articles={latestArticles} />
-                {/* Ad Space */}
                 <div className="mt-8 p-4 bg-maroon-50 dark:bg-maroon-900/20 text-center rounded-lg">
                   <p className="text-xs text-maroon-500 dark:text-maroon-400 mb-2">ADVERTISEMENT</p>
                   <div className="h-60 bg-maroon-100 dark:bg-maroon-900/40 flex items-center justify-center">
                     <p className="text-maroon-400 dark:text-maroon-300">Ad Space</p>
                   </div>
                 </div>
-                {/* Opinion Articles */}
                 <div className="mt-8 bg-maroon-50 dark:bg-maroon-900/20 p-4 rounded-lg">
                   <h2 className="text-lg font-bold border-b border-maroon-200 dark:border-maroon-800 pb-2 mb-4 text-maroon-900 dark:text-gold-300">
                     Opinion
@@ -260,11 +271,9 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         </div>
-        {/* Newsletter Section */}
         <Newsletter />
       </main>
       <Footer />
-      {/* Modals */}
       <SearchResults
         isOpen={isSearchOpen}
         onClose={closeSearchResults}
