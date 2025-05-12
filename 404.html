@@ -4,8 +4,11 @@
     <meta charset="utf-8">
     <title>Single Page Apps for GitHub Pages</title>
     <script type="text/javascript">
+      // Store the requested path
       var path = window.location.pathname;
-      window.location = "/nepalleaks/" + path.replace(/^\/nepalleaks\//, "");
+      sessionStorage.setItem('redirectPath', path);
+      // Redirect to the SPA root
+      window.location = '/nepalleaks/';
     </script>
   </head>
   <body>
